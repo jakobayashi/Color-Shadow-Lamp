@@ -7,6 +7,7 @@
 enum class OperationMode {
     RGB,
     LTT,
+    PARTY,
     WIFI,
     OFF,
 };
@@ -20,6 +21,7 @@ private:
     unsigned long lastButtonPress;
     bool buttonWasPressed;
     LEDController &ledController;
+    float partyHz = 0.6f; // cycles per second
 
 public:
     StateHandler(LEDController &controller)
@@ -32,6 +34,18 @@ public:
 
     OperationMode getCurrentMode() const {
         return currentMode;
+    }
+
+    void setMode(OperationMode mode) {
+        currentMode = mode;
+    }
+
+    void setPartyHz(float hz) {
+        partyHz = constrain(hz, 0.05f, 5.0f); // clamp to sensible range
+    }
+
+    float getPartyHz() const {
+        return partyHz;
     }
 
     void update() {
@@ -50,6 +64,9 @@ public:
                         currentMode = OperationMode::LTT;
                         break;
                     case OperationMode::LTT:
+                        currentMode = OperationMode::PARTY;
+                        break;
+                    case OperationMode::PARTY:
                         currentMode = OperationMode::WIFI;
                         break;
                     case OperationMode::WIFI:

@@ -3,6 +3,7 @@
 #include "LTTController.h"
 #include "WiFiManager.h"
 #include "State.h"
+#include <math.h>
 
 const int RED_PIN = 5;
 const int GREEN_PIN = 6;
@@ -35,6 +36,10 @@ LTTController lttController(ledController);
 WiFiManager wifiManager(ledController);
 StateHandler stateHandler(ledController);
 
+// Simple party mode helpers
+float partyHue = 0.0f; // degrees
+unsigned long lastPartyMillis = 0;
+
 int readAveragedADC(int pin, int samples = 4)
 {
   int32_t sum = 0;
@@ -55,11 +60,63 @@ int calculateMovingAverage(int *values, int size)
   return sum / size;
 }
 
+void hsvToRgb11(float hDeg, float s, float v, int &rOut, int &gOut, int &bOut)
+{
+  float h = fmodf(hDeg, 360.0f) / 60.0f;
+  float c = v * s;
+  float x = c * (1 - fabsf(fmodf(h, 2.0f) - 1));
+  float m = v - c;
+  float r, g, b;
+
+  if (0 <= h && h < 1)
+  {
+    r = c;
+    g = x;
+    b = 0;
+  }
+  else if (1 <= h && h < 2)
+  {
+    r = x;
+    g = c;
+    b = 0;
+  }
+  else if (2 <= h && h < 3)
+  {
+    r = 0;
+    g = c;
+    b = x;
+  }
+  else if (3 <= h && h < 4)
+  {
+    r = 0;
+    g = x;
+    b = c;
+  }
+  else if (4 <= h && h < 5)
+  {
+    r = x;
+    g = 0;
+    b = c;
+  }
+  else
+  {
+    r = c;
+    g = 0;
+    b = x;
+  }
+
+  rOut = static_cast<int>((r + m) * 2047);
+  gOut = static_cast<int>((g + m) * 2047);
+  bOut = static_cast<int>((b + m) * 2047);
+}
+
 void setup()
 {
   Serial.begin(115200);
   ledController.begin();
   stateHandler.begin();
+  wifiManager.attachStateHandler(&stateHandler);
+  wifiManager.begin();
 
   analogSetAttenuation(ADC_2_5db);
   analogSetPinAttenuation(POT_RED_PIN, ADC_2_5db);
@@ -77,11 +134,6 @@ void loop()
   {
     lastUpdate = currentMillis;
     stateHandler.update();
-
-    if (stateHandler.getCurrentMode() == OperationMode::WIFI)
-    {
-      wifiManager.update();
-    }
 
     int pot1 = readAveragedADC(POT_RED_PIN);
     int pot2 = readAveragedADC(POT_GREEN_PIN);
@@ -109,33 +161,41 @@ void loop()
     //Serial.print(", pot3: ");
     //Serial.println(pot3);
 
-    static bool wasInWiFiMode = false;
-    bool isInWiFiMode = stateHandler.getCurrentMode() == OperationMode::WIFI;
-
-    if (isInWiFiMode && !wasInWiFiMode)
-    {
-      wifiManager.begin();
-      ledController.checkAndUpdatePowerLimit();
-    }
-    else if (!isInWiFiMode && wasInWiFiMode)
-    {
-      wifiManager.stop();
-      ledController.setPWMDirectly(0, 0, 0);
-      ledController.checkAndUpdatePowerLimit();
-    }
-    wasInWiFiMode = isInWiFiMode;
-
     switch (stateHandler.getCurrentMode())
     {
     case OperationMode::RGB:
       // pot1 is LEFT (physically red), pot3 is RIGHT (physically blue)
       // since the LED pins are now swapped in begin(), we need to swap these too
       ledController.setPWMDirectly(pot3, pot2, pot1); // Swap values to match physical layout
+      lastPartyMillis = 0;
       break;
     case OperationMode::LTT:
       lttController.updateLTT(pot1, pot2, pot3);
+      lastPartyMillis = 0;
       break;
+    case OperationMode::PARTY:
+    {
+      if (lastPartyMillis == 0)
+      {
+        lastPartyMillis = currentMillis;
+      }
+      float dt = (currentMillis - lastPartyMillis) / 1000.0f;
+      lastPartyMillis = currentMillis;
+
+      float hz = stateHandler.getPartyHz();
+      partyHue += dt * hz * 360.0f;
+      if (partyHue > 720.0f)
+      {
+        partyHue = fmodf(partyHue, 360.0f);
+      }
+      int r, g, b;
+      hsvToRgb11(partyHue, 1.0f, 1.0f, r, g, b);
+      ledController.setPWMDirectly(r, g, b);
+      break;
+    }
     case OperationMode::OFF:
+      lastPartyMillis = 0;
+      break;
     case OperationMode::WIFI:
       // LED control happens via WiFi in WIFI mode
       break;

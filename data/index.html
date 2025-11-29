@@ -1,89 +1,362 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>RGB LED Control</title>
+  <title>Color Shadow Lamp</title>
   <script src="/iro.min.js"></script>
-  <script src="/iro_script.js"></script>
-
+  <script src="/iro_script.js" defer></script>
   <style>
-    html, body {background: #1c1c1c;}
-    h3 {color: aliceblue; text-align: center;}
-
-    .ColorPicker {
-        display: flex;
-        align-items: center;
-        align-content: center;
-        flex-direction: column;
-        margin-top: 2%;
-        text-align: center;
+    :root {
+      --bg: #050913;
+      --card: #0f172a;
+      --card-dark: #0c1224;
+      --text: #e8edf7;
+      --muted: #93a3c7;
+      --accent: #6de1ff;
+      --accent-2: #ffa45c;
+      --border: rgba(255, 255, 255, 0.05);
+      --shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      --radius: 18px;
     }
 
-    .unlock-section {
-        margin-top: 20px;
-        text-align: center;
-        color: white;
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Poppins", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at 20% 20%, rgba(109, 225, 255, 0.08), transparent 30%),
+                  radial-gradient(circle at 80% 0%, rgba(255, 164, 92, 0.12), transparent 25%),
+                  var(--bg);
+      padding: 24px;
     }
 
-    .unlock-button {
-        background-color: #ff4444;
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 5px;
-        cursor: pointer;
-        margin-top: 10px;
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
     }
 
-    .unlock-button:disabled {
-        background-color: #cccccc;
-        cursor: not-allowed;
+    header.top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
     }
 
-    .reset-button {
-        background-color: #ffa500;
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 5px;
-        cursor: pointer;
-        margin-top: 10px;
-        margin-left: 10px;
+    .title {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
     }
 
-    .button-group {
-        margin-top: 10px;
+    .subtitle {
+      margin: 4px 0 0 0;
+      color: var(--muted);
+      font-size: 14px;
     }
 
-    .status-indicator {
-        display: inline-block;
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        margin-right: 5px;
+    .pills {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
     }
 
-    .status-locked {
-        background-color: #ff4444;
+    .pill {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
     }
 
-    .status-unlocked {
-        background-color: #44ff44;
+    .pill .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      background: var(--accent);
+      box-shadow: 0 0 0 6px rgba(109, 225, 255, 0.12);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 16px;
+    }
+
+    .card {
+      background: linear-gradient(135deg, var(--card) 0%, var(--card-dark) 100%);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+
+    .card h2 {
+      margin: 4px 0 0;
+      font-size: 20px;
+      letter-spacing: -0.3px;
+    }
+
+    .eyebrow {
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 1px;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .color-picker-shell {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 16px auto 6px;
+      padding: 8px;
+    }
+
+    #color-picker {
+      width: 100%;
+      max-width: 360px;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 6px 0 0 0;
+    }
+
+    .mode-chip {
+      padding: 6px 12px;
+      border-radius: 10px;
+      background: rgba(109, 225, 255, 0.12);
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid rgba(109, 225, 255, 0.4);
+    }
+
+    .grid-rows {
+      display: grid;
+      gap: 14px;
+    }
+
+    .section-title {
+      margin: 0 0 6px 0;
+      font-size: 16px;
+    }
+
+    .mode-buttons {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+    }
+
+    button.mode {
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    button.mode.active {
+      border-color: rgba(109, 225, 255, 0.5);
+      background: rgba(109, 225, 255, 0.12);
+      color: var(--accent);
+      box-shadow: 0 0 0 6px rgba(109, 225, 255, 0.06);
+    }
+
+    button.mode:hover {
+      transform: translateY(-1px);
+    }
+
+    .safety {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .lock-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #ff5f56;
+      box-shadow: 0 0 0 6px rgba(255, 95, 86, 0.15);
+    }
+
+    .status-dot.unlocked {
+      background: #4ade80;
+      box-shadow: 0 0 0 6px rgba(74, 222, 128, 0.12);
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    button.action {
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+
+    button.action.primary {
+      background: linear-gradient(135deg, #6de1ff, #7cf1d2);
+      color: #0b1226;
+      border: none;
+      box-shadow: 0 12px 30px rgba(109, 225, 255, 0.3);
+    }
+
+    .party-control {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.03);
+      display: grid;
+      gap: 10px;
+    }
+
+    .party-inputs {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .party-inputs input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+    }
+
+    .party-inputs input[type="number"] {
+      width: 80px;
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px;
+      font-size: 14px;
+    }
+
+    button.action:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
 <body>
-  <h3>Color Shadow Controller</h3>
-  <div class="ColorPicker" id="color-picker"></div>
-  <div class="unlock-section">
-    <div>
-      <span class="status-indicator" id="lockStatus"></span>
-      <span id="lockStatusText">Checking status...</span>
-    </div>
-    <div class="button-group">
-      <button id="unlockButton" class="unlock-button">Unlock Full Power</button>
-      <button id="resetButton" class="reset-button" style="display: none;">Reset to Safe Mode</button>
-    </div>
+  <div class="page">
+    <header class="top">
+      <div>
+        <p class="eyebrow">Color Shadow Lamp</p>
+        <h1 class="title">Always-on remote control</h1>
+        <p class="subtitle">Connect via the ESP32 static IP and launch scenes instantly.</p>
+      </div>
+      <div class="pills">
+        <span class="pill" id="ipBadge"><span class="dot"></span>IP — waiting...</span>
+        <span class="pill" id="networkBadge">Network — checking...</span>
+      </div>
+    </header>
+
+    <section class="layout">
+      <article class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+          <div>
+            <p class="eyebrow">Live control</p>
+            <h2>Color wheel</h2>
+          </div>
+          <span class="mode-chip" id="modeChip">Mode: remote</span>
+        </div>
+
+        <div class="color-picker-shell">
+          <div id="color-picker"></div>
+        </div>
+        <p class="hint">Drag the wheel or sliders. Remote mode takes control so the knobs won't override.</p>
+      </article>
+
+      <article class="card">
+        <div class="grid-rows">
+          <div>
+            <p class="eyebrow">Control modes</p>
+            <h2 class="section-title">Choose source</h2>
+            <div class="mode-buttons" id="modeButtons">
+              <button class="mode" data-mode="wifi">Remote (app)</button>
+              <button class="mode" data-mode="rgb">Manual knobs</button>
+              <button class="mode" data-mode="ltt">Warm/Cool mix</button>
+              <button class="mode" data-mode="party">Party mode</button>
+              <button class="mode" data-mode="off">Lights off</button>
+            </div>
+          </div>
+
+          <div class="party-control">
+            <div>
+              <p class="eyebrow">Party speed</p>
+              <h2 class="section-title">Cycle rate</h2>
+              <p class="hint">Set the hue rotation speed in Hz (cycles per second).</p>
+            </div>
+            <div class="party-inputs">
+              <input type="range" id="partySlider" min="0.05" max="5" step="0.05" value="0.6">
+              <input type="number" id="partyInput" min="0.05" max="5" step="0.05" value="0.6"> Hz
+            </div>
+          </div>
+
+          <div class="safety">
+            <div class="lock-status">
+              <span class="status-dot" id="lockStatusDot"></span>
+              <div>
+                <div id="lockStatusText">Checking power mode…</div>
+                <div class="hint" id="ipMirror"></div>
+              </div>
+            </div>
+            <div class="actions">
+              <button id="resetButton" class="action">Safe mode</button>
+              <button id="unlockButton" class="action primary">Unlock full power</button>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
   </div>
 </body>
 </html>

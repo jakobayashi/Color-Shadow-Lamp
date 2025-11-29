@@ -1,191 +1,231 @@
-// Wait for DOM to be fully loaded
-document.addEventListener('DOMContentLoaded', function () {
-  var colorPicker = new iro.ColorPicker("#color-picker", {
-    width: 250,
-    color: "rgb(255, 255, 255)",
-    borderWidth: 1,
-    borderColor: "#fff",
-    layout: [
-      {
-        component: iro.ui.Wheel,
-      },
-      {
-        component: iro.ui.Slider,
-        options: {
-          id: 'red-slider',
-          sliderType: 'red'
-        }
-      },
-      {
-        component: iro.ui.Slider,
-        options: {
-          id: 'green-slider',
-          sliderType: 'green'
-        }
-      },
-      {
-        component: iro.ui.Slider,
-        options: {
-          id: 'blue-slider',
-          sliderType: 'blue'
-        }
-      },
-      {
-        component: iro.ui.Slider,
-        options: {
-          id: 'value-slider',
-          sliderType: 'value'
-        }
-      },
-      {
-        component: iro.ui.Slider,
-        options: {
-          id: 'kelvin-slider',
-          sliderType: 'kelvin'
-        }
-      }
-    ]
-  });
+document.addEventListener('DOMContentLoaded', () => {
+  const elements = {
+    ipBadge: document.getElementById('ipBadge'),
+    ipMirror: document.getElementById('ipMirror'),
+    networkBadge: document.getElementById('networkBadge'),
+    modeChip: document.getElementById('modeChip'),
+    modeButtons: document.querySelectorAll('button.mode'),
+    lockStatusDot: document.getElementById('lockStatusDot'),
+    lockStatusText: document.getElementById('lockStatusText'),
+    unlockButton: document.getElementById('unlockButton'),
+    resetButton: document.getElementById('resetButton'),
+    partySlider: document.getElementById('partySlider'),
+    partyInput: document.getElementById('partyInput'),
+  };
 
-  // Get DOM elements
-  const lockStatus = document.getElementById('lockStatus');
-  const lockStatusText = document.getElementById('lockStatusText');
-  const unlockButton = document.getElementById('unlockButton');
-  const resetButton = document.getElementById('resetButton');
-
-  // Only proceed if we have all required elements
-  if (!lockStatus || !lockStatusText || !unlockButton || !resetButton) {
-    console.error('Required DOM elements not found');
+  const required = [elements.ipBadge, elements.networkBadge, elements.modeChip, elements.lockStatusDot, elements.lockStatusText, elements.unlockButton, elements.resetButton, elements.partySlider, elements.partyInput];
+  if (required.some((el) => !el)) {
+    console.error('Missing required UI elements');
     return;
   }
 
-  // Throttle/debounce utility
-  function debounce(func, wait) {
+  const picker = new iro.ColorPicker('#color-picker', {
+    width: 320,
+    color: 'rgb(255, 255, 255)',
+    layout: [
+      { component: iro.ui.Wheel },
+      { component: iro.ui.Slider, options: { sliderType: 'value' } },
+      { component: iro.ui.Slider, options: { sliderType: 'kelvin' } },
+    ],
+  });
+
+  const API_HEADERS = { 'Content-Type': 'application/x-www-form-urlencoded' };
+  let currentMode = 'wifi';
+  let colorInFlight = false;
+  let latestPayload = null;
+  let lastRgb = { r: -1, g: -1, b: -1 };
+
+  function debounce(fn, wait, minInterval = 40) {
     let timeout;
-    let lastArgs;
-    let lastTime = 0;
-    const throttleWait = 50; // Minimum time between updates (ms)
-
-    return function executedFunction() {
-      const args = arguments;
+    let lastCall = 0;
+    return (...args) => {
       const now = Date.now();
-
-      // Clear the previous timeout
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-
-      // If enough time has passed, execute immediately
-      if (now - lastTime >= throttleWait) {
-        func.apply(this, args);
-        lastTime = now;
+      const run = () => {
+        lastCall = Date.now();
+        fn.apply(null, args);
+      };
+      if (timeout) clearTimeout(timeout);
+      if (now - lastCall >= minInterval) {
+        run();
       } else {
-        // Otherwise, set up a debounced call
-        lastArgs = args;
-        timeout = setTimeout(() => {
-          func.apply(this, lastArgs);
-          lastTime = Date.now();
-        }, wait);
+        timeout = setTimeout(run, wait);
       }
     };
   }
 
-  // Debounced update function
-  const updateColor = debounce(function (color) {
-    fetch("/postRGB", {
-      method: "POST",
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: "r=" + color.rgb.r + "&g=" + color.rgb.g + "&b=" + color.rgb.b
-    })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('Network response was not ok');
-        }
-        console.log('Color updated');
-      })
-      .catch(error => console.error('Error updating color:', error));
-  }, 100); // 100ms debounce time
-
-  // Color change handler
-  colorPicker.on('color:change', function (color) {
-    updateColor(color);
-  });
-
-  function updateLockStatus() {
-    fetch('/lockStatus')
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('Network response was not ok');
-        }
-        return response.json();
-      })
-      .then(data => {
-        console.log('Lock status response:', data); // Debug logging
-        const unlocked = data.unlocked;
-        lockStatus.className = 'status-indicator ' + (unlocked ? 'status-unlocked' : 'status-locked');
-        lockStatusText.textContent = unlocked ? 'FULL POWER MODE' : 'SAFE MODE';
-        unlockButton.disabled = unlocked;
-        resetButton.style.display = unlocked ? 'inline-block' : 'none';
-      })
-      .catch(error => {
-        console.error('Error checking lock status:', error);
-        lockStatusText.textContent = 'Error checking status';
-      });
+  function setModeChip(mode) {
+    const labels = {
+      wifi: 'remote',
+      rgb: 'manual knobs',
+      ltt: 'warm/cool mix',
+      party: 'party mode',
+      off: 'lights off',
+    };
+    elements.modeChip.textContent = `Mode: ${labels[mode] || mode}`;
   }
 
-  // Unlock button handler
-  unlockButton.addEventListener('click', function () {
-    if (confirm('WARNING: Unlocking full power may cause LEDs and heatsinks to reach high temperatures, posing a burn risk. Handle with caution and keep LEDs at least 3 cm away from skin and flammable objects. ' +
-      'Are you sure you want to continue?\n\n' + 'NOTE: LEDs automatically switch off when heatsinks reach 63C. Ensure adequate airflow during use at high power levels to avoid automatic switching')) {
-      fetch('/unlock', {
+  function highlightMode(mode) {
+    elements.modeButtons.forEach(btn => {
+      const isActive = btn.dataset.mode === mode;
+      btn.classList.toggle('active', isActive);
+    });
+    setModeChip(mode);
+  }
+
+  function updateNetworkBadges({ ip, apFallback }) {
+    elements.ipBadge.innerHTML = `<span class="dot"></span>IP — ${ip || 'unknown'}`;
+    if (apFallback) {
+      elements.networkBadge.textContent = 'Network — fallback hotspot';
+    } else {
+      elements.networkBadge.textContent = 'Network — home Wi‑Fi';
+    }
+    elements.ipMirror.textContent = `Reachable at ${ip || 'static IP'}`;
+    const dot = elements.ipBadge.querySelector('.dot');
+    if (dot) {
+      dot.style.background = apFallback ? '#ffa45c' : '#6de1ff';
+      dot.style.boxShadow = apFallback ? '0 0 0 6px rgba(255, 164, 92, 0.18)' : '0 0 0 6px rgba(109, 225, 255, 0.18)';
+    }
+  }
+
+  function updateLockUI(unlocked) {
+    elements.lockStatusDot.classList.toggle('unlocked', unlocked);
+    elements.lockStatusText.textContent = unlocked ? 'Full power unlocked' : 'Safe power mode';
+    elements.unlockButton.disabled = unlocked;
+  }
+
+  async function fetchStatus() {
+    try {
+      const res = await fetch('/api/status');
+      if (!res.ok) throw new Error('status failed');
+      const data = await res.json();
+      if (data.mode) {
+        currentMode = data.mode;
+        highlightMode(currentMode);
+      }
+      updateNetworkBadges(data);
+      updateLockUI(Boolean(data.unlocked));
+      if (typeof data.partyHz === 'number') {
+        setPartyInputs(data.partyHz);
+      }
+    } catch (err) {
+      console.error('Status check failed', err);
+    }
+  }
+
+  async function setMode(mode) {
+    try {
+      const res = await fetch('/api/mode', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        }
-      })
-        .then(response => {
-          if (response.ok) {
-            console.log('Unlock successful');
-            updateLockStatus();
-          } else {
-            throw new Error('Unlock request failed');
-          }
-        })
-        .catch(error => {
-          console.error('Error unlocking:', error);
-          alert('Failed to unlock device');
+        headers: API_HEADERS,
+        body: `mode=${encodeURIComponent(mode)}`,
+      });
+      if (!res.ok) throw new Error('mode failed');
+      currentMode = mode;
+      highlightMode(mode);
+    } catch (err) {
+      console.error('Failed to set mode', err);
+    }
+  }
+
+  const sendColor = debounce(async (color) => {
+    if (currentMode !== 'wifi') {
+      await setMode('wifi');
+    }
+    const { r, g, b } = color.rgb;
+    if (r === lastRgb.r && g === lastRgb.g && b === lastRgb.b) {
+      return;
+    }
+    lastRgb = { r, g, b };
+    latestPayload = `r=${r}&g=${g}&b=${b}`;
+    if (colorInFlight) return;
+    colorInFlight = true;
+    while (latestPayload) {
+      const body = latestPayload;
+      latestPayload = null;
+      try {
+        await fetch('/postRGB', {
+          method: 'POST',
+          headers: API_HEADERS,
+          body,
         });
+      } catch (err) {
+        console.error('Color update failed', err);
+      }
+    }
+    colorInFlight = false;
+  }, 180);
+
+  picker.on('color:change', sendColor);
+
+  elements.modeButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode;
+      setMode(mode);
+    });
+  });
+
+  elements.unlockButton.addEventListener('click', async () => {
+    const confirmed = confirm('Unlock full power? LEDs and heatsinks can run hot—use with care.');
+    if (!confirmed) return;
+    try {
+      const res = await fetch('/unlock', { method: 'POST', headers: API_HEADERS });
+      if (!res.ok) throw new Error('unlock failed');
+      updateLockUI(true);
+    } catch (err) {
+      console.error('Unlock failed', err);
+      alert('Unlock failed. Check connection.');
     }
   });
 
-  // Reset button handler
-  resetButton.addEventListener('click', function () {
-    if (confirm('This will return the device to safe mode (reduced power level). Continue?')) {
-      fetch('/reset', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        }
-      })
-        .then(response => {
-          if (response.ok) {
-            console.log('Reset successful');
-            updateLockStatus();
-          } else {
-            throw new Error('Reset request failed');
-          }
-        })
-        .catch(error => {
-          console.error('Error resetting:', error);
-          alert('Failed to reset device');
-        });
+  elements.resetButton.addEventListener('click', async () => {
+    const confirmed = confirm('Return to safe power mode?');
+    if (!confirmed) return;
+    try {
+      const res = await fetch('/reset', { method: 'POST', headers: API_HEADERS });
+      if (!res.ok) throw new Error('reset failed');
+      updateLockUI(false);
+    } catch (err) {
+      console.error('Reset failed', err);
+      alert('Reset failed. Check connection.');
     }
   });
 
-  // Initial status check
-  updateLockStatus();
-  // Poll every 5 seconds
-  setInterval(updateLockStatus, 5000);
+  function setPartyInputs(hz) {
+    const clamped = Math.min(Math.max(hz, 0.05), 5);
+    elements.partySlider.value = clamped;
+    elements.partyInput.value = clamped.toFixed(1);
+  }
+
+  async function pushPartyHz(hz) {
+    try {
+      await fetch('/api/party', {
+        method: 'POST',
+        headers: API_HEADERS,
+        body: `hz=${hz}`,
+      });
+    } catch (err) {
+      console.error('Failed to set party Hz', err);
+    }
+  }
+
+  const syncParty = debounce((value) => {
+    const hz = parseFloat(value);
+    if (!isFinite(hz)) return;
+    setPartyInputs(hz);
+    pushPartyHz(hz);
+    if (currentMode !== 'party') {
+      setMode('party');
+    }
+  }, 250);
+
+  elements.partySlider.addEventListener('input', (e) => {
+    syncParty(e.target.value);
+  });
+
+  elements.partyInput.addEventListener('change', (e) => {
+    syncParty(e.target.value);
+  });
+
+  fetchStatus();
+  setInterval(fetchStatus, 6000);
 });
