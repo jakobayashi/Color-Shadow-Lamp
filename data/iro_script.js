@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', () => {
+﻿document.addEventListener('DOMContentLoaded', () => {
   const elements = {
     ipBadge: document.getElementById('ipBadge'),
     ipMirror: document.getElementById('ipMirror'),
@@ -11,9 +11,17 @@ document.addEventListener('DOMContentLoaded', () => {
     resetButton: document.getElementById('resetButton'),
     partySlider: document.getElementById('partySlider'),
     partyInput: document.getElementById('partyInput'),
+    albumArt: document.getElementById('albumArt'),
+    trackTitle: document.getElementById('trackTitle'),
+    trackArtist: document.getElementById('trackArtist'),
+    nextTrack: document.getElementById('nextTrack'),
+    progressFill: document.getElementById('progressFill'),
+    progressNow: document.getElementById('progressNow'),
+    progressTotal: document.getElementById('progressTotal'),
+    musicBpm: document.getElementById('musicBpm'),
   };
 
-  const required = [elements.ipBadge, elements.networkBadge, elements.modeChip, elements.lockStatusDot, elements.lockStatusText, elements.unlockButton, elements.resetButton, elements.partySlider, elements.partyInput];
+  const required = Object.values(elements);
   if (required.some((el) => !el)) {
     console.error('Missing required UI elements');
     return;
@@ -34,6 +42,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let colorInFlight = false;
   let latestPayload = null;
   let lastRgb = { r: -1, g: -1, b: -1 };
+  let musicData = null;
+  let musicTimer = null;
+  let progressTimer = null;
 
   function debounce(fn, wait, minInterval = 40) {
     let timeout;
@@ -56,29 +67,24 @@ document.addEventListener('DOMContentLoaded', () => {
   function setModeChip(mode) {
     const labels = {
       wifi: 'remote',
-      rgb: 'manual knobs',
-      ltt: 'warm/cool mix',
       party: 'party mode',
+      music: 'music visualizer',
       off: 'lights off',
     };
     elements.modeChip.textContent = `Mode: ${labels[mode] || mode}`;
   }
 
   function highlightMode(mode) {
-    elements.modeButtons.forEach(btn => {
+    elements.modeButtons.forEach((btn) => {
       const isActive = btn.dataset.mode === mode;
       btn.classList.toggle('active', isActive);
     });
     setModeChip(mode);
   }
 
-  function updateNetworkBadges({ ip, apFallback }) {
-    elements.ipBadge.innerHTML = `<span class="dot"></span>IP — ${ip || 'unknown'}`;
-    if (apFallback) {
-      elements.networkBadge.textContent = 'Network — fallback hotspot';
-    } else {
-      elements.networkBadge.textContent = 'Network — home Wi‑Fi';
-    }
+    function updateNetworkBadges({ ip, apFallback }) {
+    elements.ipBadge.innerHTML = `<span class="dot"></span>IP - ${ip || 'unknown'}`;
+    elements.networkBadge.textContent = apFallback ? 'Network - fallback hotspot' : 'Network - home Wi-Fi';
     elements.ipMirror.textContent = `Reachable at ${ip || 'static IP'}`;
     const dot = elements.ipBadge.querySelector('.dot');
     if (dot) {
@@ -91,6 +97,69 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.lockStatusDot.classList.toggle('unlocked', unlocked);
     elements.lockStatusText.textContent = unlocked ? 'Full power unlocked' : 'Safe power mode';
     elements.unlockButton.disabled = unlocked;
+  }
+
+  function formatTime(ms) {
+    if (!ms || ms < 0) return '0:00';
+    const totalSec = Math.floor(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = (totalSec % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  function applyMusicUI(data) {
+    elements.trackTitle.textContent = data?.track || '--';
+    elements.trackArtist.textContent = data?.artist || '--';
+    elements.nextTrack.textContent = data?.nextTrack ? `${data.nextTrack} — ${data.nextArtist || ''}` : '--';
+    elements.musicBpm.textContent = data?.bpm ? data.bpm.toFixed(1) : '--';
+    if (data?.albumArt) {
+      elements.albumArt.style.backgroundImage = `url('${data.albumArt}')`;
+    } else {
+      elements.albumArt.style.backgroundImage = 'none';
+    }
+    const duration = data?.durationMs || 0;
+    const progress = Math.min(data?.progressMs || 0, duration);
+    elements.progressFill.style.width = duration > 0 ? `${Math.min(100, (progress / duration) * 100)}%` : '0%';
+    elements.progressNow.textContent = formatTime(progress);
+    elements.progressTotal.textContent = formatTime(duration);
+  }
+
+  function tickProgress() {
+    if (!musicData || !musicData.durationMs) return;
+    musicData.progressMs = Math.min(musicData.progressMs + 1000, musicData.durationMs);
+    applyMusicUI(musicData);
+  }
+
+  async function fetchMusic() {
+    try {
+      const res = await fetch('/api/music');
+      if (!res.ok) throw new Error('music failed');
+      musicData = await res.json();
+      applyMusicUI(musicData);
+    } catch (err) {
+      console.error('Music fetch failed', err);
+    }
+  }
+
+  function startMusicPolling() {
+    if (!musicTimer) {
+      fetchMusic();
+      musicTimer = setInterval(fetchMusic, 4000);
+    }
+    if (!progressTimer) {
+      progressTimer = setInterval(tickProgress, 1000);
+    }
+  }
+
+  function stopMusicPolling() {
+    if (musicTimer) {
+      clearInterval(musicTimer);
+      musicTimer = null;
+    }
+    if (progressTimer) {
+      clearInterval(progressTimer);
+      progressTimer = null;
+    }
   }
 
   async function fetchStatus() {
@@ -107,6 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (typeof data.partyHz === 'number') {
         setPartyInputs(data.partyHz);
       }
+      startMusicPolling(); // keep music info visible even outside music mode
     } catch (err) {
       console.error('Status check failed', err);
     }
@@ -122,6 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!res.ok) throw new Error('mode failed');
       currentMode = mode;
       highlightMode(mode);
+      startMusicPolling();
     } catch (err) {
       console.error('Failed to set mode', err);
     }
@@ -157,7 +228,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   picker.on('color:change', sendColor);
 
-  elements.modeButtons.forEach(btn => {
+  elements.modeButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
       const mode = btn.dataset.mode;
       setMode(mode);
@@ -226,6 +297,9 @@ document.addEventListener('DOMContentLoaded', () => {
     syncParty(e.target.value);
   });
 
+  // Always keep now-playing data in sync
+  startMusicPolling();
   fetchStatus();
   setInterval(fetchStatus, 6000);
 });
+

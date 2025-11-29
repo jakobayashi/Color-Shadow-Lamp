@@ -5,6 +5,7 @@
 #include "LEDController.h"
 #include <ESPmDNS.h>
 #include "State.h"
+#include <HTTPClient.h>
 
 class WiFiManager
 {
@@ -26,9 +27,29 @@ private:
     const char *apSsid = "Color_Shadow";
     const char *apPassword = "password";
 
+    // Music proxy (companion service) endpoint
+    const char *musicProxyBase = "http://192.168.1.20:3000";
+    const char *musicPlaybackPath = "/playback";
+    unsigned long lastMusicPoll = 0;
+    const unsigned long MUSIC_POLL_INTERVAL_MS = 3000;
+
     bool apFallback = false;
     bool started = false;
     float partyHz = 0.6f;
+
+    struct MusicInfo
+    {
+        String track;
+        String artist;
+        String albumArt;
+        String nextTrack;
+        String nextArtist;
+        int durationMs = 0;
+        int progressMs = 0;
+        float bpm = 0.0f;
+        unsigned long lastUpdated = 0;
+        bool hasData = false;
+    } musicInfo;
 
     unsigned long lastUpdate = 0;
     const unsigned long MIN_UPDATE_INTERVAL = 5;
@@ -112,12 +133,10 @@ private:
     {
         switch (mode)
         {
-        case OperationMode::RGB:
-            return "rgb";
-        case OperationMode::LTT:
-            return "ltt";
         case OperationMode::PARTY:
             return "party";
+        case OperationMode::MUSIC:
+            return "music";
         case OperationMode::WIFI:
             return "wifi";
         case OperationMode::OFF:
@@ -131,19 +150,14 @@ private:
     {
         String lower = value;
         lower.toLowerCase();
-        if (lower == "rgb")
-        {
-            modeOut = OperationMode::RGB;
-            return true;
-        }
-        if (lower == "ltt")
-        {
-            modeOut = OperationMode::LTT;
-            return true;
-        }
         if (lower == "party")
         {
             modeOut = OperationMode::PARTY;
+            return true;
+        }
+        if (lower == "music")
+        {
+            modeOut = OperationMode::MUSIC;
             return true;
         }
         if (lower == "wifi" || lower == "remote")
@@ -175,7 +189,8 @@ private:
         payload += "\"unlocked\":" + String(ledController.isUnlocked() ? "true" : "false") + ",";
         payload += "\"ip\":\"" + ipStr + "\",";
         payload += "\"apFallback\":" + String(apFallback ? "true" : "false") + ",";
-        payload += "\"partyHz\":" + String(partyHz, 2);
+        payload += "\"partyHz\":" + String(partyHz, 2) + ",";
+        payload += "\"musicBpm\":" + String(musicInfo.bpm, 2);
         payload += "}";
 
         request->send(200, "application/json", payload);
@@ -241,6 +256,131 @@ private:
         {
             stateHandler->setPartyHz(hz);
         }
+    }
+
+    void sendMusicStatus(AsyncWebServerRequest *request)
+    {
+        // Refresh data on-demand so UI sees latest even if mode isn't actively polling
+        pollMusicPlayback();
+
+        String payload = "{";
+        payload += "\"track\":\"" + musicInfo.track + "\",";
+        payload += "\"artist\":\"" + musicInfo.artist + "\",";
+        payload += "\"albumArt\":\"" + musicInfo.albumArt + "\",";
+        payload += "\"nextTrack\":\"" + musicInfo.nextTrack + "\",";
+        payload += "\"nextArtist\":\"" + musicInfo.nextArtist + "\",";
+        payload += "\"durationMs\":" + String(musicInfo.durationMs) + ",";
+        payload += "\"progressMs\":" + String(musicInfo.progressMs) + ",";
+        payload += "\"bpm\":" + String(musicInfo.bpm, 2) + ",";
+        payload += "\"hasData\":" + String(musicInfo.hasData ? "true" : "false");
+        payload += "}";
+        request->send(200, "application/json", payload);
+    }
+
+    String extractStringValue(const String &body, const String &key)
+    {
+        String pattern = "\"" + key + "\"";
+        int pos = body.indexOf(pattern);
+        if (pos < 0) return "";
+        pos = body.indexOf(":", pos);
+        if (pos < 0) return "";
+        // skip colon and any whitespace
+        while (pos < (int)body.length() && (body[pos] == ':' || body[pos] == ' ')) pos++;
+        if (pos >= (int)body.length() || body[pos] != '\"') return "";
+        pos++; // move past opening quote
+        int end = body.indexOf("\"", pos);
+        if (end < 0) return "";
+        return body.substring(pos, end);
+    }
+
+    long extractLongValue(const String &body, const String &key)
+    {
+        String pattern = "\"" + key + "\"";
+        int pos = body.indexOf(pattern);
+        if (pos < 0) return -1;
+        pos = body.indexOf(":", pos);
+        if (pos < 0) return -1;
+        while (pos < (int)body.length() && (body[pos] == ':' || body[pos] == ' ')) pos++;
+        int end = pos;
+        while (end < (int)body.length() && (isDigit(body[end]) || body[end] == '-')) end++;
+        if (end == pos) return -1;
+        return body.substring(pos, end).toInt();
+    }
+
+    float extractFloatValue(const String &body, const String &key)
+    {
+        String pattern = "\"" + key + "\"";
+        int pos = body.indexOf(pattern);
+        if (pos < 0) return -1.0f;
+        pos = body.indexOf(":", pos);
+        if (pos < 0) return -1.0f;
+        while (pos < (int)body.length() && (body[pos] == ':' || body[pos] == ' ')) pos++;
+        int end = pos;
+        while (end < (int)body.length() && (isDigit(body[end]) || body[end] == '.' || body[end] == '-')) end++;
+        if (end == pos) return -1.0f;
+        return body.substring(pos, end).toFloat();
+    }
+
+    void pollMusicPlayback()
+    {
+        if (millis() - lastMusicPoll < MUSIC_POLL_INTERVAL_MS)
+        {
+            return;
+        }
+        lastMusicPoll = millis();
+
+        String url = String(musicProxyBase) + musicPlaybackPath;
+        HTTPClient http;
+        http.setTimeout(3000);
+        if (!http.begin(url))
+        {
+            Serial.println("[Music] http.begin failed");
+            return;
+        }
+        int code = http.GET();
+        if (code != HTTP_CODE_OK)
+        {
+            Serial.printf("[Music] HTTP error %d from proxy, WiFi status=%d\n", code, WiFi.status());
+            Serial.printf("[Music] errorString: %s\n", http.errorToString(code).c_str());
+            http.end();
+            return;
+        }
+        String body = http.getString();
+        http.end();
+        if (body.length() == 0)
+        {
+            Serial.println("[Music] Empty body from proxy");
+            return;
+        }
+        Serial.printf("[Music] body len=%d\n", body.length());
+
+        MusicInfo info;
+        info.track = extractStringValue(body, "track");
+        info.artist = extractStringValue(body, "artist");
+        info.albumArt = extractStringValue(body, "albumArt");
+        info.nextTrack = extractStringValue(body, "nextTrack");
+        info.nextArtist = extractStringValue(body, "nextArtist");
+        info.durationMs = (int)extractLongValue(body, "durationMs");
+        info.progressMs = (int)extractLongValue(body, "progressMs");
+        Serial.printf("[Music] Parsed track='%s' artist='%s' duration=%d progress=%d\n",
+                      info.track.c_str(), info.artist.c_str(), info.durationMs, info.progressMs);
+        float bpmVal = extractFloatValue(body, "bpm");
+        if (bpmVal <= 0.0f)
+        {
+            // Preserve previous BPM when the same track is playing; otherwise leave 0
+            if (musicInfo.hasData && info.track == musicInfo.track && musicInfo.bpm > 0.1f)
+            {
+                bpmVal = musicInfo.bpm;
+            }
+            else
+            {
+                bpmVal = 0.0f;
+            }
+        }
+        info.bpm = bpmVal;
+        info.lastUpdated = millis();
+        info.hasData = (info.track.length() > 0);
+        musicInfo = info;
     }
 
     bool connectToStation()
@@ -390,6 +530,7 @@ public:
                   { request->send(404); });
 
         server.on("/api/status", HTTP_GET, std::bind(&WiFiManager::sendStatus, this, std::placeholders::_1));
+        server.on("/api/music", HTTP_GET, std::bind(&WiFiManager::sendMusicStatus, this, std::placeholders::_1));
 
         server.on("/api/mode", HTTP_POST, [this](AsyncWebServerRequest *request)
                   {
@@ -449,9 +590,19 @@ public:
         }
     }
 
-    void update()
+    void update(OperationMode mode)
     {
-        // Not needed with AsyncWebServer
+        // Always poll so /api/music stays fresh even if mode isn't music
+        pollMusicPlayback();
+
+        if (mode == OperationMode::MUSIC)
+        {
+            if (musicInfo.bpm > 0.1f)
+            {
+                float hz = constrain(musicInfo.bpm / 60.0f, 0.05f, 5.0f);
+                updatePartyHz(hz);
+            }
+        }
     }
 
     void stop()

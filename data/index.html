@@ -235,6 +235,77 @@
       transition: all 0.2s ease;
     }
 
+    .music-panel {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.03);
+      display: grid;
+      gap: 10px;
+    }
+
+    .music-meta {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .album-art {
+      width: 72px;
+      height: 72px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #2b2f48, #171d33);
+      border: 1px solid var(--border);
+      background-size: cover;
+      background-position: center;
+    }
+
+    .music-meta .text .track {
+      font-size: 18px;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+
+    .music-meta .text .artist,
+    .music-meta .text .next {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .progress-shell {
+      display: grid;
+      gap: 6px;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #6de1ff, #7cf1d2);
+      transition: width 0.2s ease;
+    }
+
+    .progress-times {
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .music-stats {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
     button.action.primary {
       background: linear-gradient(135deg, #6de1ff, #7cf1d2);
       color: #0b1226;
@@ -322,8 +393,7 @@
             <h2 class="section-title">Choose source</h2>
             <div class="mode-buttons" id="modeButtons">
               <button class="mode" data-mode="wifi">Remote (app)</button>
-              <button class="mode" data-mode="rgb">Manual knobs</button>
-              <button class="mode" data-mode="ltt">Warm/Cool mix</button>
+              <button class="mode" data-mode="music">Music visualizer</button>
               <button class="mode" data-mode="party">Party mode</button>
               <button class="mode" data-mode="off">Lights off</button>
             </div>
@@ -352,6 +422,29 @@
             <div class="actions">
               <button id="resetButton" class="action">Safe mode</button>
               <button id="unlockButton" class="action primary">Unlock full power</button>
+            </div>
+          </div>
+
+          <div class="music-panel">
+            <div class="music-meta">
+              <div class="album-art" id="albumArt"></div>
+              <div class="text">
+                <div class="eyebrow">Now playing</div>
+                <div class="track" id="trackTitle">--</div>
+                <div class="artist" id="trackArtist">--</div>
+                <div class="next">Next: <span id="nextTrack">--</span></div>
+              </div>
+            </div>
+            <div class="progress-shell">
+              <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+              <div class="progress-times">
+                <span id="progressNow">0:00</span>
+                <span id="progressTotal">0:00</span>
+              </div>
+            </div>
+            <div class="music-stats">
+              <span class="pill">BPM <strong id="musicBpm">--</strong></span>
+              <span class="pill">Mode <strong>music visualizer</strong></span>
             </div>
           </div>
         </div>
