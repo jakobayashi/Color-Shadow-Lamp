@@ -1,3 +1,5 @@
+custom firmware by julian kobayashi
+
 Firmware Update Instructional Video: https://youtu.be/KALXqIxTB14
 
 To upload code to blank ESP32-C3 via USB: 
