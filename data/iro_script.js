@@ -11,14 +11,6 @@
     resetButton: document.getElementById('resetButton'),
     partySlider: document.getElementById('partySlider'),
     partyInput: document.getElementById('partyInput'),
-    albumArt: document.getElementById('albumArt'),
-    trackTitle: document.getElementById('trackTitle'),
-    trackArtist: document.getElementById('trackArtist'),
-    nextTrack: document.getElementById('nextTrack'),
-    progressFill: document.getElementById('progressFill'),
-    progressNow: document.getElementById('progressNow'),
-    progressTotal: document.getElementById('progressTotal'),
-    musicBpm: document.getElementById('musicBpm'),
   };
 
   const required = Object.values(elements);
@@ -42,9 +34,6 @@
   let colorInFlight = false;
   let latestPayload = null;
   let lastRgb = { r: -1, g: -1, b: -1 };
-  let musicData = null;
-  let musicTimer = null;
-  let progressTimer = null;
 
   function debounce(fn, wait, minInterval = 40) {
     let timeout;
@@ -68,7 +57,6 @@
     const labels = {
       wifi: 'remote',
       party: 'party mode',
-      music: 'music visualizer',
       off: 'lights off',
     };
     elements.modeChip.textContent = `Mode: ${labels[mode] || mode}`;
@@ -99,69 +87,6 @@
     elements.unlockButton.disabled = unlocked;
   }
 
-  function formatTime(ms) {
-    if (!ms || ms < 0) return '0:00';
-    const totalSec = Math.floor(ms / 1000);
-    const m = Math.floor(totalSec / 60);
-    const s = (totalSec % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-  }
-
-  function applyMusicUI(data) {
-    elements.trackTitle.textContent = data?.track || '--';
-    elements.trackArtist.textContent = data?.artist || '--';
-    elements.nextTrack.textContent = data?.nextTrack ? `${data.nextTrack} — ${data.nextArtist || ''}` : '--';
-    elements.musicBpm.textContent = data?.bpm ? data.bpm.toFixed(1) : '--';
-    if (data?.albumArt) {
-      elements.albumArt.style.backgroundImage = `url('${data.albumArt}')`;
-    } else {
-      elements.albumArt.style.backgroundImage = 'none';
-    }
-    const duration = data?.durationMs || 0;
-    const progress = Math.min(data?.progressMs || 0, duration);
-    elements.progressFill.style.width = duration > 0 ? `${Math.min(100, (progress / duration) * 100)}%` : '0%';
-    elements.progressNow.textContent = formatTime(progress);
-    elements.progressTotal.textContent = formatTime(duration);
-  }
-
-  function tickProgress() {
-    if (!musicData || !musicData.durationMs) return;
-    musicData.progressMs = Math.min(musicData.progressMs + 1000, musicData.durationMs);
-    applyMusicUI(musicData);
-  }
-
-  async function fetchMusic() {
-    try {
-      const res = await fetch('/api/music');
-      if (!res.ok) throw new Error('music failed');
-      musicData = await res.json();
-      applyMusicUI(musicData);
-    } catch (err) {
-      console.error('Music fetch failed', err);
-    }
-  }
-
-  function startMusicPolling() {
-    if (!musicTimer) {
-      fetchMusic();
-      musicTimer = setInterval(fetchMusic, 4000);
-    }
-    if (!progressTimer) {
-      progressTimer = setInterval(tickProgress, 1000);
-    }
-  }
-
-  function stopMusicPolling() {
-    if (musicTimer) {
-      clearInterval(musicTimer);
-      musicTimer = null;
-    }
-    if (progressTimer) {
-      clearInterval(progressTimer);
-      progressTimer = null;
-    }
-  }
-
   async function fetchStatus() {
     try {
       const res = await fetch('/api/status');
@@ -176,7 +101,6 @@
       if (typeof data.partyHz === 'number') {
         setPartyInputs(data.partyHz);
       }
-      startMusicPolling(); // keep music info visible even outside music mode
     } catch (err) {
       console.error('Status check failed', err);
     }
@@ -192,7 +116,6 @@
       if (!res.ok) throw new Error('mode failed');
       currentMode = mode;
       highlightMode(mode);
-      startMusicPolling();
     } catch (err) {
       console.error('Failed to set mode', err);
     }
@@ -236,7 +159,7 @@
   });
 
   elements.unlockButton.addEventListener('click', async () => {
-    const confirmed = confirm('Unlock full power? LEDs and heatsinks can run hot—use with care.');
+    const confirmed = confirm('Unlock full power? LEDs and heatsinks can run hot-use with care.');
     if (!confirmed) return;
     try {
       const res = await fetch('/unlock', { method: 'POST', headers: API_HEADERS });
@@ -297,8 +220,6 @@
     syncParty(e.target.value);
   });
 
-  // Always keep now-playing data in sync
-  startMusicPolling();
   fetchStatus();
   setInterval(fetchStatus, 6000);
 });

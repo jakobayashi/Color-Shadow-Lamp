@@ -6,7 +6,6 @@
 
 enum class OperationMode {
     PARTY,
-    MUSIC,
     WIFI,
     OFF,
 };

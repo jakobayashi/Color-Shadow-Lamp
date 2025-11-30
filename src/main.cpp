@@ -2,6 +2,7 @@
 #include "LEDController.h"
 #include "WiFiManager.h"
 #include "State.h"
+#include "DebugLog.h"
 #include <math.h>
 
 const int RED_PIN = 5;
@@ -22,8 +23,6 @@ StateHandler stateHandler(ledController);
 // Simple party mode helpers
 float partyHue = 0.0f; // degrees
 unsigned long lastPartyMillis = 0;
-float musicPhase = 0.0f; // radians for BPM fade
-unsigned long lastMusicMillis = 0;
 OperationMode lastMode = OperationMode::WIFI;
 
 void hsvToRgb11(float hDeg, float s, float v, int &rOut, int &gOut, int &bOut)
@@ -91,16 +90,22 @@ float advanceSeconds(unsigned long &lastTimestamp, unsigned long nowMillis)
 void setup()
 {
   Serial.begin(115200);
+  logStatus("BOOT", "Firmware start, free heap=%u", ESP.getFreeHeap());
   ledController.begin();
   stateHandler.begin();
+  logStatus("BOOT", "LED and state initialized");
   wifiManager.attachStateHandler(&stateHandler);
+  logStatus("BOOT", "Starting WiFi manager");
   wifiManager.begin();
+  logStatus("BOOT", "Setup complete, initial mode=WIFI");
 }
 
 void loop()
 {
   static unsigned long lastUpdate = 0;
+  static unsigned long lastHeartbeat = 0;
   const unsigned long UPDATE_INTERVAL = 20;
+  const unsigned long HEARTBEAT_INTERVAL = 2000;
 
   unsigned long currentMillis = millis();
   if (currentMillis - lastUpdate >= UPDATE_INTERVAL)
@@ -117,11 +122,9 @@ void loop()
         partyHue = 0.0f;
         lastPartyMillis = 0;
       }
-      if (mode != OperationMode::MUSIC)
-      {
-        musicPhase = 0.0f;
-        lastMusicMillis = 0;
-      }
+      logStatus("MODE", "Mode changed to %s", mode == OperationMode::PARTY   ? "PARTY" :
+                                                 mode == OperationMode::WIFI    ? "WIFI" :
+                                                                                  "OFF");
     }
 
     switch (mode)
@@ -140,24 +143,6 @@ void loop()
       ledController.setPWMDirectly(r, g, b);
       break;
     }
-    case OperationMode::MUSIC:
-    {
-      float dt = advanceSeconds(lastMusicMillis, currentMillis);
-      float hz = max(stateHandler.getPartyHz(), 0.05f);
-      musicPhase += dt * hz * (2.0f * PI);
-      if (musicPhase > 2.0f * PI)
-      {
-        musicPhase = fmodf(musicPhase, 2.0f * PI);
-      }
-
-      // Fade white based on BPM-driven frequency
-      float fade = (sinf(musicPhase) + 1.0f) * 0.5f; // 0..1
-      const float minLevel = 0.15f;                  // keep a little base light
-      float brightness = minLevel + fade * (1.0f - minLevel);
-      int pwm = static_cast<int>(brightness * 2047);
-      ledController.setPWMDirectly(pwm, pwm, pwm);
-      break;
-    }
     case OperationMode::OFF:
       lastPartyMillis = 0;
       break;
@@ -168,5 +153,12 @@ void loop()
 
     lastMode = mode;
   }
+
+  if (currentMillis - lastHeartbeat >= HEARTBEAT_INTERVAL)
+  {
+    lastHeartbeat = currentMillis;
+    wifiManager.logStatusSnapshot(stateHandler.getCurrentMode());
+  }
+
   delay(2);
 }

@@ -5,7 +5,7 @@
 #include "LEDController.h"
 #include <ESPmDNS.h>
 #include "State.h"
-#include <HTTPClient.h>
+#include "DebugLog.h"
 
 class WiFiManager
 {
@@ -27,32 +27,9 @@ private:
     const char *apSsid = "Color_Shadow";
     const char *apPassword = "password";
 
-    // Music proxy (companion service) endpoint
-    const char *musicProxyBase = "http://192.168.1.20:3000";
-    const char *musicPlaybackPath = "/playback";
-    unsigned long lastMusicPoll = 0;
-    const unsigned long MUSIC_POLL_INTERVAL_MS = 3000;
-
     bool apFallback = false;
     bool started = false;
     float partyHz = 0.6f;
-
-    struct MusicInfo
-    {
-        String track;
-        String artist;
-        String albumArt;
-        String nextTrack;
-        String nextArtist;
-        int durationMs = 0;
-        int progressMs = 0;
-        float bpm = 0.0f;
-        unsigned long lastUpdated = 0;
-        bool hasData = false;
-    } musicInfo;
-
-    unsigned long lastUpdate = 0;
-    const unsigned long MIN_UPDATE_INTERVAL = 5;
 
     void handleRoot(AsyncWebServerRequest *request)
     {
@@ -135,8 +112,6 @@ private:
         {
         case OperationMode::PARTY:
             return "party";
-        case OperationMode::MUSIC:
-            return "music";
         case OperationMode::WIFI:
             return "wifi";
         case OperationMode::OFF:
@@ -153,11 +128,6 @@ private:
         if (lower == "party")
         {
             modeOut = OperationMode::PARTY;
-            return true;
-        }
-        if (lower == "music")
-        {
-            modeOut = OperationMode::MUSIC;
             return true;
         }
         if (lower == "wifi" || lower == "remote")
@@ -189,8 +159,7 @@ private:
         payload += "\"unlocked\":" + String(ledController.isUnlocked() ? "true" : "false") + ",";
         payload += "\"ip\":\"" + ipStr + "\",";
         payload += "\"apFallback\":" + String(apFallback ? "true" : "false") + ",";
-        payload += "\"partyHz\":" + String(partyHz, 2) + ",";
-        payload += "\"musicBpm\":" + String(musicInfo.bpm, 2);
+        payload += "\"partyHz\":" + String(partyHz, 2);
         payload += "}";
 
         request->send(200, "application/json", payload);
@@ -258,133 +227,9 @@ private:
         }
     }
 
-    void sendMusicStatus(AsyncWebServerRequest *request)
-    {
-        // Refresh data on-demand so UI sees latest even if mode isn't actively polling
-        pollMusicPlayback();
-
-        String payload = "{";
-        payload += "\"track\":\"" + musicInfo.track + "\",";
-        payload += "\"artist\":\"" + musicInfo.artist + "\",";
-        payload += "\"albumArt\":\"" + musicInfo.albumArt + "\",";
-        payload += "\"nextTrack\":\"" + musicInfo.nextTrack + "\",";
-        payload += "\"nextArtist\":\"" + musicInfo.nextArtist + "\",";
-        payload += "\"durationMs\":" + String(musicInfo.durationMs) + ",";
-        payload += "\"progressMs\":" + String(musicInfo.progressMs) + ",";
-        payload += "\"bpm\":" + String(musicInfo.bpm, 2) + ",";
-        payload += "\"hasData\":" + String(musicInfo.hasData ? "true" : "false");
-        payload += "}";
-        request->send(200, "application/json", payload);
-    }
-
-    String extractStringValue(const String &body, const String &key)
-    {
-        String pattern = "\"" + key + "\"";
-        int pos = body.indexOf(pattern);
-        if (pos < 0) return "";
-        pos = body.indexOf(":", pos);
-        if (pos < 0) return "";
-        // skip colon and any whitespace
-        while (pos < (int)body.length() && (body[pos] == ':' || body[pos] == ' ')) pos++;
-        if (pos >= (int)body.length() || body[pos] != '\"') return "";
-        pos++; // move past opening quote
-        int end = body.indexOf("\"", pos);
-        if (end < 0) return "";
-        return body.substring(pos, end);
-    }
-
-    long extractLongValue(const String &body, const String &key)
-    {
-        String pattern = "\"" + key + "\"";
-        int pos = body.indexOf(pattern);
-        if (pos < 0) return -1;
-        pos = body.indexOf(":", pos);
-        if (pos < 0) return -1;
-        while (pos < (int)body.length() && (body[pos] == ':' || body[pos] == ' ')) pos++;
-        int end = pos;
-        while (end < (int)body.length() && (isDigit(body[end]) || body[end] == '-')) end++;
-        if (end == pos) return -1;
-        return body.substring(pos, end).toInt();
-    }
-
-    float extractFloatValue(const String &body, const String &key)
-    {
-        String pattern = "\"" + key + "\"";
-        int pos = body.indexOf(pattern);
-        if (pos < 0) return -1.0f;
-        pos = body.indexOf(":", pos);
-        if (pos < 0) return -1.0f;
-        while (pos < (int)body.length() && (body[pos] == ':' || body[pos] == ' ')) pos++;
-        int end = pos;
-        while (end < (int)body.length() && (isDigit(body[end]) || body[end] == '.' || body[end] == '-')) end++;
-        if (end == pos) return -1.0f;
-        return body.substring(pos, end).toFloat();
-    }
-
-    void pollMusicPlayback()
-    {
-        if (millis() - lastMusicPoll < MUSIC_POLL_INTERVAL_MS)
-        {
-            return;
-        }
-        lastMusicPoll = millis();
-
-        String url = String(musicProxyBase) + musicPlaybackPath;
-        HTTPClient http;
-        http.setTimeout(3000);
-        if (!http.begin(url))
-        {
-            Serial.println("[Music] http.begin failed");
-            return;
-        }
-        int code = http.GET();
-        if (code != HTTP_CODE_OK)
-        {
-            Serial.printf("[Music] HTTP error %d from proxy, WiFi status=%d\n", code, WiFi.status());
-            Serial.printf("[Music] errorString: %s\n", http.errorToString(code).c_str());
-            http.end();
-            return;
-        }
-        String body = http.getString();
-        http.end();
-        if (body.length() == 0)
-        {
-            Serial.println("[Music] Empty body from proxy");
-            return;
-        }
-        Serial.printf("[Music] body len=%d\n", body.length());
-
-        MusicInfo info;
-        info.track = extractStringValue(body, "track");
-        info.artist = extractStringValue(body, "artist");
-        info.albumArt = extractStringValue(body, "albumArt");
-        info.nextTrack = extractStringValue(body, "nextTrack");
-        info.nextArtist = extractStringValue(body, "nextArtist");
-        info.durationMs = (int)extractLongValue(body, "durationMs");
-        info.progressMs = (int)extractLongValue(body, "progressMs");
-        Serial.printf("[Music] Parsed track='%s' artist='%s' duration=%d progress=%d\n",
-                      info.track.c_str(), info.artist.c_str(), info.durationMs, info.progressMs);
-        float bpmVal = extractFloatValue(body, "bpm");
-        if (bpmVal <= 0.0f)
-        {
-            // Preserve previous BPM when the same track is playing; otherwise leave 0
-            if (musicInfo.hasData && info.track == musicInfo.track && musicInfo.bpm > 0.1f)
-            {
-                bpmVal = musicInfo.bpm;
-            }
-            else
-            {
-                bpmVal = 0.0f;
-            }
-        }
-        info.bpm = bpmVal;
-        info.lastUpdated = millis();
-        info.hasData = (info.track.length() > 0);
-        musicInfo = info;
-    }
-
     bool connectToStation()
     {
+        logStatus("WIFI", "Connecting to SSID=%s", staSsid);
         Serial.printf("Connecting to Wi-Fi SSID: %s\n", staSsid);
         WiFi.mode(WIFI_STA);
         WiFi.setSleep(false);
@@ -410,10 +255,12 @@ private:
         {
             apFallback = false;
             Serial.printf("Connected! IP address: %s\n", WiFi.localIP().toString().c_str());
+            logStatus("WIFI", "Connected to STA with IP %s, RSSI=%d", WiFi.localIP().toString().c_str(), WiFi.RSSI());
             return true;
         }
 
         Serial.println("Failed to join Wi-Fi network, will fall back to AP mode");
+        logStatus("WIFI", "STA connect failed, falling back to AP");
         WiFi.disconnect(true);
         return false;
     }
@@ -425,6 +272,7 @@ private:
         apFallback = true;
         delay(200);
         Serial.printf("Access Point started. Connect to %s (IP %s)\n", apSsid, WiFi.softAPIP().toString().c_str());
+        logStatus("WIFI", "AP started ssid=%s ip=%s", apSsid, WiFi.softAPIP().toString().c_str());
     }
 
 public:
@@ -439,6 +287,24 @@ public:
         }
     }
 
+    void logStatusSnapshot(OperationMode mode)
+    {
+        String modeStr = modeToString(mode);
+        const bool connected = WiFi.status() == WL_CONNECTED;
+        IPAddress ip = apFallback ? WiFi.softAPIP() : WiFi.localIP();
+        const int rssi = connected ? WiFi.RSSI() : 0;
+
+        logStatus("SNAP",
+                  "mode=%s wifiMode=%s connected=%s ip=%s apFallback=%s rssi=%d heap=%u",
+                  modeStr.c_str(),
+                  WiFi.getMode() == WIFI_AP ? "AP" : "STA",
+                  connected ? "yes" : "no",
+                  ip.toString().c_str(),
+                  apFallback ? "yes" : "no",
+                  rssi,
+                  ESP.getFreeHeap());
+    }
+
     void begin()
     {
         if (started)
@@ -449,12 +315,17 @@ public:
         if (!SPIFFS.begin(true))
         {
             Serial.println("SPIFFS Mount Failed");
+            logStatus("BOOT", "SPIFFS mount failed");
             return;
         }
 
         // 1. Register WiFi event handler FIRST
         WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info)
-                     { Serial.printf("[WiFi] Event: %d\n", event); });
+                     {
+                         (void)info;
+                         Serial.printf("[WiFi] Event: %d\n", event);
+                         logStatus("WIFI-EVT", "eventId=%d", event);
+                     });
 
         // Try to join existing network, otherwise start AP fallback
         if (!connectToStation())
@@ -467,6 +338,7 @@ public:
         if (currentIp == IPAddress(0, 0, 0, 0))
         {
             Serial.println("Network failed to provide IP - Rebooting");
+            logStatus("BOOT", "No IP obtained, restarting");
             ESP.restart();
         }
 
@@ -475,6 +347,7 @@ public:
         {
             Serial.println("MDNS responder started");
             MDNS.addService("http", "tcp", 80);
+            logStatus("WIFI", "mDNS started at colorshadow.local");
         }
 
         
@@ -530,7 +403,6 @@ public:
                   { request->send(404); });
 
         server.on("/api/status", HTTP_GET, std::bind(&WiFiManager::sendStatus, this, std::placeholders::_1));
-        server.on("/api/music", HTTP_GET, std::bind(&WiFiManager::sendMusicStatus, this, std::placeholders::_1));
 
         server.on("/api/mode", HTTP_POST, [this](AsyncWebServerRequest *request)
                   {
@@ -580,11 +452,13 @@ public:
         {
             server.begin();
             Serial.println("Async HTTP server started successfully");
+            logStatus("WIFI", "HTTP server started");
             started = true;
         }
         catch (...)
         {
             Serial.println("Failed to start server - attempting restart");
+            logStatus("WIFI", "Server start failed, restarting ESP");
             delay(1000);
             ESP.restart();
         }
@@ -592,17 +466,7 @@ public:
 
     void update(OperationMode mode)
     {
-        // Always poll so /api/music stays fresh even if mode isn't music
-        pollMusicPlayback();
-
-        if (mode == OperationMode::MUSIC)
-        {
-            if (musicInfo.bpm > 0.1f)
-            {
-                float hz = constrain(musicInfo.bpm / 60.0f, 0.05f, 5.0f);
-                updatePartyHz(hz);
-            }
-        }
+        (void)mode;
     }
 
     void stop()
